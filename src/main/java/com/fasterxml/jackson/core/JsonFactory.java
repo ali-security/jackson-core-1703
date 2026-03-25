@@ -257,6 +257,8 @@ public class JsonFactory
      */
     protected CharacterEscapes _characterEscapes;
 
+    protected StreamReadConstraints _streamReadConstraints;
+
     /**
      * Optional helper object that may decorate input sources, to do
      * additional processing on input during parsing.
@@ -336,6 +338,7 @@ public class JsonFactory
         _generatorFeatures = src._generatorFeatures;
         _inputDecorator = src._inputDecorator;
         _outputDecorator = src._outputDecorator;
+        _streamReadConstraints = src._streamReadConstraints;
 
         // JSON-specific
         _characterEscapes = src._characterEscapes;
@@ -360,6 +363,7 @@ public class JsonFactory
         _generatorFeatures = b._streamWriteFeatures;
         _inputDecorator = b._inputDecorator;
         _outputDecorator = b._outputDecorator;
+        _streamReadConstraints = b._streamReadConstraints;
 
         // JSON-specific
         _characterEscapes = b._characterEscapes;
@@ -384,6 +388,7 @@ public class JsonFactory
         _generatorFeatures = b._streamWriteFeatures;
         _inputDecorator = b._inputDecorator;
         _outputDecorator = b._outputDecorator;
+        _streamReadConstraints = b._streamReadConstraints;
 
         // JSON-specific: need to assign even if not really used
         _characterEscapes = null;
@@ -737,6 +742,10 @@ public class JsonFactory
     @Override
     public int getFormatGeneratorFeatures() {
         return 0;
+    }
+
+    public StreamReadConstraints streamReadConstraints() {
+        return _streamReadConstraints;
     }
 
     /*
@@ -1136,7 +1145,10 @@ public class JsonFactory
      */
     @Override
     public JsonParser createParser(byte[] data, int offset, int len) throws IOException, JsonParseException {
-        IOContext ctxt = _createContext(data, true);
+        // Wrap with ContentReference to track offset/length for better error messages
+        com.fasterxml.jackson.core.io.ContentReference srcRef = 
+            new com.fasterxml.jackson.core.io.ContentReference(data, offset, len);
+        IOContext ctxt = _createContext(srcRef, true);
         // [JACKSON-512]: allow wrapping with InputDecorator
         if (_inputDecorator != null) {
             InputStream in = _inputDecorator.decorate(ctxt, data, offset, len);
@@ -1189,7 +1201,10 @@ public class JsonFactory
         if (_inputDecorator != null) { // easier to just wrap in a Reader than extend InputDecorator
             return createParser(new CharArrayReader(content, offset, len));
         }
-        return _createParser(content, offset, len, _createContext(content, true),
+        // Wrap with ContentReference to track offset/length for better error messages
+        com.fasterxml.jackson.core.io.ContentReference srcRef = 
+            new com.fasterxml.jackson.core.io.ContentReference(content, offset, len);
+        return _createParser(content, offset, len, _createContext(srcRef, true),
                 // important: buffer is NOT recyclable, as it's from caller
                 false);
     }
@@ -1932,7 +1947,7 @@ public class JsonFactory
      * @return I/O context created
      */
     protected IOContext _createContext(Object srcRef, boolean resourceManaged) {
-        return new IOContext(_getBufferRecycler(), srcRef, resourceManaged);
+        return new IOContext(_streamReadConstraints, _getBufferRecycler(), srcRef, resourceManaged);
     }
 
     /**
@@ -1948,7 +1963,7 @@ public class JsonFactory
     protected IOContext _createNonBlockingContext(Object srcRef) {
         // [jackson-core#479]: allow recycling for non-blocking parser again
         // now that access is thread-safe
-        return new IOContext(_getBufferRecycler(), srcRef, false);
+        return new IOContext(_streamReadConstraints, _getBufferRecycler(), srcRef, false);
     }
 
     /*
